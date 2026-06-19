@@ -1,0 +1,2 @@
+export BOSDYN_CLIENT_USERNAME=admin
+export BOSDYN_CLIENT_PASSWORD=6ayqcfmx6io3

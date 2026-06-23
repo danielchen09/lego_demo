@@ -12,12 +12,13 @@ import bosdyn.client.lease
 import bosdyn.client.util
 from bosdyn.api import estop_pb2, geometry_pb2, image_pb2, manipulation_api_pb2
 from bosdyn.client.estop import EstopClient
-from bosdyn.client.frame_helpers import GRAV_ALIGNED_BODY_FRAME_NAME, ODOM_FRAME_NAME, get_a_tform_b, VISION_FRAME_NAME, get_vision_tform_body, math_helpers
+from bosdyn.client.frame_helpers import GRAV_ALIGNED_BODY_FRAME_NAME, ODOM_FRAME_NAME, get_a_tform_b, VISION_FRAME_NAME, get_vision_tform_body, math_helpers, get_se2_a_tform_b, BODY_FRAME_NAME
 from bosdyn.client.image import ImageClient
 from bosdyn.client.manipulation_api_client import ManipulationApiClient
-from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient, blocking_stand, block_until_arm_arrives, blocking_command, blocking_sit
+from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient, blocking_stand, block_until_arm_arrives, blocking_command, blocking_sit, block_for_trajectory_cmd
 from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.client.world_object import WorldObjectClient
+from bosdyn.api.basic_command_pb2 import RobotCommandFeedbackStatus
 
 
 class SpotController:
@@ -98,3 +99,90 @@ class SpotController:
     
     def run(self):
         pass
+
+    def stow_arm(self):
+        stow = RobotCommandBuilder.arm_stow_command()
+
+        # Issue the command via the RobotCommandClient
+        stow_command_id = self.command_client.robot_command(stow)
+
+        block_until_arm_arrives(self.command_client, stow_command_id, 3.0)
+
+    def reach_relative_body(self, position: np.ndarray, quaternion: np.ndarray):
+
+        body_tform_hand = geometry_pb2.SE3Pose(
+            position=geometry_pb2.Vec3(x=position[0], y=position[1], z=position[2]),
+            rotation=geometry_pb2.Quaternion(w=quaternion[0], x=quaternion[1], y=quaternion[2], z=quaternion[3])
+        )
+        transforms = self.get_transforms_snapshot()
+        odom_tform_body = get_a_tform_b(transforms, ODOM_FRAME_NAME, BODY_FRAME_NAME)
+        odom_tform_hand = odom_tform_body * math_helpers.SE3Pose.from_proto(body_tform_hand)
+
+        arm_command = RobotCommandBuilder.arm_pose_command(
+            odom_tform_hand.x,
+            odom_tform_hand.y,
+            odom_tform_hand.z,
+            odom_tform_hand.rot.w,
+            odom_tform_hand.rot.x,
+            odom_tform_hand.rot.y,
+            odom_tform_hand.rot.z,
+            ODOM_FRAME_NAME,
+            5
+        )
+        follow_arm_command = RobotCommandBuilder.follow_arm_command()
+        command = RobotCommandBuilder.build_synchro_command(
+            follow_arm_command,
+            arm_command
+        )
+        reach_command_id = self.command_client.robot_command(command)
+        block_until_arm_arrives(self.command_client, reach_command_id, 10.0)
+
+    def get_transforms_snapshot(self):
+        return self.robot_state_client.get_robot_state().kinematic_state.transforms_snapshot
+
+    def get_global_transform(self):
+        transforms = self.get_transforms_snapshot()
+        body_tfrom_ident = math_helpers.SE2Pose(0, 0, 0)
+        world_tform_body = get_se2_a_tform_b(transforms, ODOM_FRAME_NAME, BODY_FRAME_NAME)
+        return world_tform_body * body_tfrom_ident
+
+    def global_move(self, x, y, yaw):
+        robot_cmd = RobotCommandBuilder.synchro_se2_trajectory_point_command(
+            goal_x=x,
+            goal_y=y,
+            goal_heading=yaw,
+            frame_name=ODOM_FRAME_NAME,
+            params=RobotCommandBuilder.mobility_params(stair_hint=False)
+        )
+        command_id = self.command_client.robot_command(lease=None, command=robot_cmd,
+                                                end_time_secs=time.time() + 10.0)
+        while True:
+            feedback = self.command_client.robot_command_feedback(command_id)
+            mobility_feedback = feedback.feedback.synchronized_feedback.mobility_command_feedback
+            if mobility_feedback.status != RobotCommandFeedbackStatus.STATUS_PROCESSING:
+                print('Failed to reach the goal')
+                return False
+            traj_feedback = mobility_feedback.se2_trajectory_feedback
+            if (traj_feedback.status == traj_feedback.STATUS_AT_GOAL and
+                    traj_feedback.body_movement_status == traj_feedback.BODY_STATUS_SETTLED):
+                print('Arrived at the goal.')
+                return True
+            time.sleep(1)
+
+    @staticmethod
+    def rotate_image(image, source_name):
+        """Rotate the image so that it is always displayed upright."""
+        if source_name == 'frontleft_fisheye_image':
+            image = cv2.rotate(image, rotateCode=0)
+        elif source_name == 'right_fisheye_image':
+            image = cv2.rotate(image, rotateCode=1)
+        elif source_name == 'frontright_fisheye_image':
+            image = cv2.rotate(image, rotateCode=0)
+        return image
+    
+
+    @staticmethod
+    def make_camera_params(ints):
+        """Return dt_apriltags camera params: fx, fy, cx, cy."""
+        return (ints.focal_length.x, ints.focal_length.y, ints.principal_point.x,
+                ints.principal_point.y)

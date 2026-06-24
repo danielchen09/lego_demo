@@ -123,7 +123,7 @@ class SpotAprilTag(SpotController):
             self.reach_relative_body(body_tform_goal, np.array([1, 0, 0, 0]))
             input('continue>')
             self.stow_arm()
-            self.global_move(cur_se2.x, cur_se2.y, cur_se2.angle)
+            self.global_move_se2(cur_se2.x, cur_se2.y, cur_se2.angle)
 
 
         

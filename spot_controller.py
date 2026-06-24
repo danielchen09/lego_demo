@@ -12,7 +12,7 @@ import bosdyn.client.lease
 import bosdyn.client.util
 from bosdyn.api import estop_pb2, geometry_pb2, image_pb2, manipulation_api_pb2
 from bosdyn.client.estop import EstopClient
-from bosdyn.client.frame_helpers import GRAV_ALIGNED_BODY_FRAME_NAME, ODOM_FRAME_NAME, get_a_tform_b, VISION_FRAME_NAME, get_vision_tform_body, math_helpers, get_se2_a_tform_b, BODY_FRAME_NAME
+from bosdyn.client.frame_helpers import GRAV_ALIGNED_BODY_FRAME_NAME, ODOM_FRAME_NAME, get_a_tform_b, VISION_FRAME_NAME, get_vision_tform_body, math_helpers, get_se2_a_tform_b, BODY_FRAME_NAME, HAND_FRAME_NAME
 from bosdyn.client.image import ImageClient
 from bosdyn.client.manipulation_api_client import ManipulationApiClient
 from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient, blocking_stand, block_until_arm_arrives, blocking_command, blocking_sit, block_for_trajectory_cmd
@@ -108,7 +108,7 @@ class SpotController:
 
         block_until_arm_arrives(self.command_client, stow_command_id, 3.0)
 
-    def reach_relative_body(self, position: np.ndarray, quaternion: np.ndarray):
+    def reach_relative_body(self, position: np.ndarray, quaternion: np.ndarray, seconds=5):
 
         body_tform_hand = geometry_pb2.SE3Pose(
             position=geometry_pb2.Vec3(x=position[0], y=position[1], z=position[2]),
@@ -117,17 +117,32 @@ class SpotController:
         transforms = self.get_transforms_snapshot()
         odom_tform_body = get_a_tform_b(transforms, ODOM_FRAME_NAME, BODY_FRAME_NAME)
         odom_tform_hand = odom_tform_body * math_helpers.SE3Pose.from_proto(body_tform_hand)
+        self.reach_relative_world(
+            (odom_tform_hand.x, odom_tform_hand.y, odom_tform_hand.z),
+            (odom_tform_hand.rot.w, odom_tform_hand.rot.x, odom_tform_hand.rot.y, odom_tform_hand.rot.z),
+            seconds
+        )
+    
+    def reach_relative_arm(self, position, seconds=5):
+        transforms = self.get_transforms_snapshot()
+        odom_tform_hand = get_a_tform_b(transforms, ODOM_FRAME_NAME, HAND_FRAME_NAME)
+        hand_tform_hand = geometry_pb2.SE3Pose(
+            position=geometry_pb2.Vec3(x=position[0], y=position[1], z=position[2]),
+            rotation=geometry_pb2.Quaternion(w=1, x=0, y=0, z=0)
+        )
+        tf = odom_tform_hand * math_helpers.SE3Pose.from_proto(hand_tform_hand)
+        self.reach_relative_world(
+            (tf.x, tf.y, tf.z),
+            (tf.rot.w, tf.rot.x, tf.rot.y, tf.rot.z),
+            seconds
+        )
 
+    def reach_relative_world(self, position: np.ndarray, quaternion: np.ndarray, seconds=5):
         arm_command = RobotCommandBuilder.arm_pose_command(
-            odom_tform_hand.x,
-            odom_tform_hand.y,
-            odom_tform_hand.z,
-            odom_tform_hand.rot.w,
-            odom_tform_hand.rot.x,
-            odom_tform_hand.rot.y,
-            odom_tform_hand.rot.z,
+            *position,
+            *quaternion,
             ODOM_FRAME_NAME,
-            5
+            seconds
         )
         follow_arm_command = RobotCommandBuilder.follow_arm_command()
         command = RobotCommandBuilder.build_synchro_command(
@@ -136,6 +151,7 @@ class SpotController:
         )
         reach_command_id = self.command_client.robot_command(command)
         block_until_arm_arrives(self.command_client, reach_command_id, 10.0)
+
 
     def get_transforms_snapshot(self):
         return self.robot_state_client.get_robot_state().kinematic_state.transforms_snapshot
@@ -146,7 +162,7 @@ class SpotController:
         world_tform_body = get_se2_a_tform_b(transforms, ODOM_FRAME_NAME, BODY_FRAME_NAME)
         return world_tform_body * body_tfrom_ident
 
-    def global_move(self, x, y, yaw):
+    def global_move_se2(self, x, y, yaw):
         robot_cmd = RobotCommandBuilder.synchro_se2_trajectory_point_command(
             goal_x=x,
             goal_y=y,
@@ -168,6 +184,16 @@ class SpotController:
                 print('Arrived at the goal.')
                 return True
             time.sleep(1)
+
+    def open_gripper(self):
+        gripper_command = RobotCommandBuilder.claw_gripper_open_command()
+        cmd_id = self.command_client.robot_command(gripper_command)
+        block_until_arm_arrives(self.command_client, cmd_id, 4.0)
+    
+    def close_gripper(self):
+        gripper_command = RobotCommandBuilder.claw_gripper_close_command()
+        cmd_id = self.command_client.robot_command(gripper_command)
+        block_until_arm_arrives(self.command_client, cmd_id, 4.0)
 
     @staticmethod
     def rotate_image(image, source_name):

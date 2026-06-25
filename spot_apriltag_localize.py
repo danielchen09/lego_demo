@@ -85,6 +85,9 @@ class SpotAprilTag(SpotController):
             cam_to_body_tform = get_a_tform_b(image_response[0].shot.transforms_snapshot,
                                                     BODY_FRAME_NAME,
                                                     image_response[0].shot.frame_name_image_sensor)
+            cam_to_world_tform = get_a_tform_b(image_response[0].shot.transforms_snapshot,
+                                                    ODOM_FRAME_NAME,
+                                                    image_response[0].shot.frame_name_image_sensor)
             # Camera intrinsics for the given source camera.
             self._intrinsics = image_response[0].source.pinhole.intrinsics
             width = image_response[0].shot.image.cols
@@ -98,6 +101,11 @@ class SpotAprilTag(SpotController):
                 print(f'Found tag for {source_name}')
                 dets.append([{
                     'center': np.array(cam_to_body_tform.transform_point(
+                        tp.pose_t[0],
+                        tp.pose_t[1],
+                        tp.pose_t[2],
+                    )).reshape(3,),
+                    'center_world':np.array(cam_to_world_tform.transform_point(
                         tp.pose_t[0],
                         tp.pose_t[1],
                         tp.pose_t[2],

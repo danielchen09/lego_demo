@@ -38,13 +38,28 @@ class SpotController:
         self._verify_estop()
 
         self.lease_client = self.robot.ensure_client(bosdyn.client.lease.LeaseClient.default_service_name)
-        self.robot_state_client = self.robot.ensure_client(RobotStateClient.default_service_name)
-        self.image_client = self.robot.ensure_client(ImageClient.default_service_name)
-        self.manipulation_api_client = self.robot.ensure_client(ManipulationApiClient.default_service_name)
-        self._world_object_client = self.robot.ensure_client(WorldObjectClient.default_service_name)
-        self.command_client = self.robot.ensure_client(RobotCommandClient.default_service_name)
-        self.robot_state_client = self.robot.ensure_client(RobotStateClient.default_service_name)
+        self.robot_state_client: RobotStateClient = self.robot.ensure_client(RobotStateClient.default_service_name)
+        self.image_client: ImageClient = self.robot.ensure_client(ImageClient.default_service_name)
+        self.manipulation_api_client: ManipulationApiClient = self.robot.ensure_client(ManipulationApiClient.default_service_name)
+        self._world_object_client: WorldObjectClient = self.robot.ensure_client(WorldObjectClient.default_service_name)
+        self.command_client: RobotCommandClient = self.robot.ensure_client(RobotCommandClient.default_service_name)
+        self.robot_state_client: RobotStateClient = self.robot.ensure_client(RobotStateClient.default_service_name)
 
+    def get_images(self, *source_list):
+        image_responses = self.image_client.get_image_from_sources(source_list)
+        images = []
+        for image in image_responses:
+            if image.shot.image.pixel_format == image_pb2.Image.PIXEL_FORMAT_DEPTH_U16:
+                dtype = np.uint16
+            else:
+                dtype = np.uint8
+            img = np.fromstring(image.shot.image.data, dtype=dtype)
+            if image.shot.image.format == image_pb2.Image.FORMAT_RAW:
+                img = img.reshape(image.shot.image.rows, image.shot.image.cols)
+            else:
+                img = cv2.imdecode(img, -1)
+            images.append(img)
+        return images
 
     def get_args(self):
         parser = argparse.ArgumentParser()
@@ -185,7 +200,7 @@ class SpotController:
                 return True
             time.sleep(1)
 
-    def open_gripper(self):
+    def open_gripper(self, return_cmd=False):
         gripper_command = RobotCommandBuilder.claw_gripper_open_command()
         cmd_id = self.command_client.robot_command(gripper_command)
         block_until_arm_arrives(self.command_client, cmd_id, 4.0)
@@ -194,6 +209,22 @@ class SpotController:
         gripper_command = RobotCommandBuilder.claw_gripper_close_command()
         cmd_id = self.command_client.robot_command(gripper_command)
         block_until_arm_arrives(self.command_client, cmd_id, 4.0)
+
+    def arm_look_at(self, position_world, gripper_open=True, seconds=4.0, hand_pose=None):
+        gaze_command = RobotCommandBuilder.arm_gaze_command(
+            position_world[0],
+            position_world[1],
+            position_world[2],
+            ODOM_FRAME_NAME,
+            frame2_tform_desired_hand=hand_pose,
+            frame2_name=None if hand_pose is None else ODOM_FRAME_NAME
+        )
+        command = RobotCommandBuilder.claw_gripper_open_command()
+        if gripper_open:
+            command = RobotCommandBuilder.build_synchro_command(command, gaze_command)
+        gaze_command_id = self.command_client.robot_command(command)
+
+        return block_until_arm_arrives(self.command_client, gaze_command_id, seconds)
 
     @staticmethod
     def rotate_image(image, source_name):

@@ -1,0 +1,56 @@
+{
+  "color_space": "HSV",
+  "opencv_hue_range": [
+    0,
+    179
+  ],
+  "ranges": [
+    {
+      "lower": [
+        30,
+        147,
+        27
+      ],
+      "upper": [
+        74,
+        255,
+        185
+      ]
+    }
+  ],
+  "sampling_radius": 5,
+  "percentile_low": 5.0,
+  "percentile_high": 95.0,
+  "tolerances": {
+    "h": 5,
+    "s": 20,
+    "v": 20
+  },
+  "morphology": {
+    "enabled": true,
+    "operation": "erode",
+    "kernel_size": 3,
+    "iterations": 1
+  },
+  "circle_detection": {
+    "enabled": true,
+    "source": "mask",
+    "dp": 1.2,
+    "min_dist": 30,
+    "param1": 100,
+    "param2": 19,
+    "min_radius": 21,
+    "max_radius": 37
+  },
+  "include_points": [
+    [
+      408,
+      390
+    ],
+    [
+      404,
+      413
+    ]
+  ],
+  "exclude_points": []
+}

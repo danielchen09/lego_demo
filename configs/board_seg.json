@@ -1,0 +1,50 @@
+{
+  "color_space": "HSV",
+  "opencv_hue_range": [
+    0,
+    179
+  ],
+  "ranges": [
+    {
+      "lower": [
+        89,
+        192,
+        59
+      ],
+      "upper": [
+        109,
+        255,
+        237
+      ]
+    }
+  ],
+  "sampling_radius": 5,
+  "percentile_low": 5.0,
+  "percentile_high": 95.0,
+  "tolerances": {
+    "h": 5,
+    "s": 20,
+    "v": 20
+  },
+  "morphology": {
+    "enabled": true,
+    "operation": "dilate",
+    "kernel_size": 5,
+    "iterations": 2
+  },
+  "include_points": [
+    [
+      226,
+      156
+    ],
+    [
+      235,
+      198
+    ],
+    [
+      92,
+      336
+    ]
+  ],
+  "exclude_points": []
+}

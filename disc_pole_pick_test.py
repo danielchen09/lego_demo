@@ -82,8 +82,8 @@ class DiscPolePickTester(SpotAprilTag):
         parser.add_argument("--magenta-hue-high", type=int, default=175)
         parser.add_argument("--min-saturation", type=int, default=70)
         parser.add_argument("--min-value", type=int, default=40)
-        parser.add_argument("--min-magenta-pixels", type=int, default=600)
-        parser.add_argument("--min-bbox-width-px", type=int, default=20)
+        parser.add_argument("--min-magenta-pixels", type=int, default=14000)
+        parser.add_argument("--min-bbox-width-px", type=int, default=250)
         parser.add_argument("--stable-frames", type=int, default=2)
 
         parser.add_argument("--grasp-forward-meters", type=float, default=0.035)

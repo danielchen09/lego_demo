@@ -95,7 +95,12 @@ class SpotController:
 
             # block_until_arm_arrives(command_client, unstow_command_id, 3.0)
 
-            self.run()
+            cur_se2 = self.get_global_transform()
+            try:
+                self.run()
+            finally:
+                new_se2 = self.get_global_transform()
+                self.global_move_se2(cur_se2.x, cur_se2.y, new_se2.angle)
 
             self.shutdown()
 
@@ -225,6 +230,19 @@ class SpotController:
         gaze_command_id = self.command_client.robot_command(command)
 
         return block_until_arm_arrives(self.command_client, gaze_command_id, seconds)
+
+    def move_arm_world(self, position_world, quat_world, seconds=5, gripper_open=False):
+        arm_command = RobotCommandBuilder.arm_pose_command(
+            *position_world,
+            *quat_world,
+            ODOM_FRAME_NAME,
+            seconds
+        )
+        if gripper_open:
+            gripper_command = RobotCommandBuilder.claw_gripper_open_command()
+            arm_command = RobotCommandBuilder.build_synchro_command(arm_command, gripper_command)
+        command_id = self.command_client.robot_command(arm_command)
+        block_until_arm_arrives(self.command_client, command_id, seconds + 5.0)
 
     @staticmethod
     def rotate_image(image, source_name):

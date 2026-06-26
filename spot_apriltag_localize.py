@@ -41,7 +41,7 @@ class SpotAprilTag(SpotController):
             quad_decimate=1.0,
             quad_sigma=0.0,
             refine_edges=1,
-            decode_sharpening=0.25,
+            decode_sharpening=0.5,
             debug=0
         )
     
@@ -69,7 +69,7 @@ class SpotAprilTag(SpotController):
         # cv2.imwrite(f'img_{source_name}.png', image_grey)
         return tag_poses
 
-    def image_to_tag_poses(self):
+    def image_to_tag_poses(self, attempts=10, expected=2):
         """Determine which camera source has a fiducial.
            Return the pose of the first detected fiducial."""
         #Iterate through all five camera sources to check for a fiducial
@@ -77,45 +77,51 @@ class SpotAprilTag(SpotController):
         ret = {}
         dets = []
 
-        for i in range(len(self._source_names)):
-            source_name = self._source_names[i]
-            img_req = build_image_request(source_name, quality_percent=100,
-                                          image_format=image_pb2.Image.FORMAT_RAW)
-            image_response = self.image_client.get_image([img_req])
-            cam_to_body_tform = get_a_tform_b(image_response[0].shot.transforms_snapshot,
-                                                    BODY_FRAME_NAME,
-                                                    image_response[0].shot.frame_name_image_sensor)
-            cam_to_world_tform = get_a_tform_b(image_response[0].shot.transforms_snapshot,
-                                                    ODOM_FRAME_NAME,
-                                                    image_response[0].shot.frame_name_image_sensor)
-            # Camera intrinsics for the given source camera.
-            self._intrinsics = image_response[0].source.pinhole.intrinsics
-            width = image_response[0].shot.image.cols
-            height = image_response[0].shot.image.rows
+        actual_got = set()
 
-            # detect given fiducial in image and return the bounding box of it
-            tag_poses = self.detect_fiducial_in_image(image_response[0].shot.image, (width, height),
-                                                      source_name)
+        for _ in range(attempts):
+            for i in range(len(self._source_names)):
+                source_name = self._source_names[i]
+                img_req = build_image_request(source_name, quality_percent=100,
+                                            image_format=image_pb2.Image.FORMAT_RAW)
+                image_response = self.image_client.get_image([img_req])
+                cam_to_body_tform = get_a_tform_b(image_response[0].shot.transforms_snapshot,
+                                                        BODY_FRAME_NAME,
+                                                        image_response[0].shot.frame_name_image_sensor)
+                cam_to_world_tform = get_a_tform_b(image_response[0].shot.transforms_snapshot,
+                                                        ODOM_FRAME_NAME,
+                                                        image_response[0].shot.frame_name_image_sensor)
+                # Camera intrinsics for the given source camera.
+                self._intrinsics = image_response[0].source.pinhole.intrinsics
+                width = image_response[0].shot.image.cols
+                height = image_response[0].shot.image.rows
 
-            if tag_poses:
-                print(f'Found tag for {source_name}')
-                dets.append([{
-                    'center': np.array(cam_to_body_tform.transform_point(
-                        tp.pose_t[0],
-                        tp.pose_t[1],
-                        tp.pose_t[2],
-                    )).reshape(3,),
-                    'center_world':np.array(cam_to_world_tform.transform_point(
-                        tp.pose_t[0],
-                        tp.pose_t[1],
-                        tp.pose_t[2],
-                    )).reshape(3,),
-                    'id': tp.tag_id,
-                    'source': source_name
-                } for tp in tag_poses])
-        for det in dets:
-            for dd in det:
-                ret[dd['id']] = dd
+                # detect given fiducial in image and return the bounding box of it
+                tag_poses = self.detect_fiducial_in_image(image_response[0].shot.image, (width, height),
+                                                        source_name)
+                actual_got.update([tp.tag_id for tp in tag_poses])
+                if tag_poses:
+                    print(f'Found tag for {source_name}')
+                    dets.append([{
+                        'center': np.array(cam_to_body_tform.transform_point(
+                            tp.pose_t[0],
+                            tp.pose_t[1],
+                            tp.pose_t[2],
+                        )).reshape(3,),
+                        'center_world':np.array(cam_to_world_tform.transform_point(
+                            tp.pose_t[0],
+                            tp.pose_t[1],
+                            tp.pose_t[2],
+                        )).reshape(3,),
+                        'id': tp.tag_id,
+                        'source': source_name
+                    } for tp in tag_poses])
+                if len(actual_got) >= expected:
+                    break
+                time.sleep(0.5)
+            for det in dets:
+                for dd in det:
+                    ret[dd['id']] = dd
         return ret
     
     def run(self):

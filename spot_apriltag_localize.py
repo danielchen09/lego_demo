@@ -78,8 +78,15 @@ class SpotAprilTag(SpotController):
         dets = []
 
         actual_got = set()
+        has_twist = False
 
-        for _ in range(attempts):
+        for i_attempts in range(attempts):
+            if i_attempts > 0:
+                mag = np.pi / 8 * (i_attempts + 1) / attempts
+                sign = 1 if i_attempts % 2 == 0 else -1
+                print(self.move_relative_body(0.2, 0, 0))
+                has_twist = True
+
             for i in range(len(self._source_names)):
                 source_name = self._source_names[i]
                 img_req = build_image_request(source_name, quality_percent=100,
@@ -101,7 +108,6 @@ class SpotAprilTag(SpotController):
                                                         source_name)
                 actual_got.update([tp.tag_id for tp in tag_poses])
                 if tag_poses:
-                    print(f'Found tag for {source_name}')
                     dets.append([{
                         'center': np.array(cam_to_body_tform.transform_point(
                             tp.pose_t[0],
@@ -122,6 +128,11 @@ class SpotAprilTag(SpotController):
             for det in dets:
                 for dd in det:
                     ret[dd['id']] = dd
+            print(f'found: {actual_got} ({i_attempts})')
+            if len(actual_got) >= expected:
+                break
+        if has_twist:
+            self.twist_body(0)
         return ret
     
     def run(self):

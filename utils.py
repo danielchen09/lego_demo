@@ -235,3 +235,7 @@ def complete_basis_from_two_axes(axis_a_idx, axis_a_vec,
         raise RuntimeError("Generated a left-handed basis, which should not happen")
 
     return R_body_ee
+
+
+def transform_vec(vec, forward, right):
+    return vec[0] * forward + vec[1] * right + vec[2] * np.array([0, 0, 1])

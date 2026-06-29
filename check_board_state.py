@@ -10,6 +10,10 @@ import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
+from ultralytics import YOLO
+
+from detect_board_state_yolo import detect_board_state
+
 
 def quat_look_at(dir_odom: np.ndarray):
     x_axis = dir_odom / np.linalg.norm(dir_odom)
@@ -36,6 +40,10 @@ class CheckBoardStateController(DropChipController):
     IMAGE_SOURCE = 'hand_color_image'
     GAZE_HEIGHT = 0.25
     GAZE_DISTANCE = 0.7
+
+    def __init__(self):
+        super().__init__()
+        self.yolo_model = YOLO('models/exp-4.pt')
 
     def run(self):
         print([src.name for src in self.image_client.list_image_sources()])
@@ -64,6 +72,7 @@ class CheckBoardStateController(DropChipController):
 
         self.reach_relative_world(position=hand_pos, quaternion=hand_dir_quat, seconds=3)
 
+
         # self.arm_look_at(odom_T_midpoint, hand_pose=odom_T_hand)
 
         self.open_gripper()
@@ -72,8 +81,10 @@ class CheckBoardStateController(DropChipController):
         images = self.get_images(self.IMAGE_SOURCE, 'hand_depth_in_hand_color_frame')
         hand_image = images[0]
         cv2.imwrite('output/hand_image.png', hand_image)
-        with open('output/hand_depth.npy', 'w') as f:
-            np.save(f, images[1])
+        board = detect_board_state(self.yolo_model, 'output/hand_image.png')
+
+        for row in board:
+            print(' '.join(map(str, row)))
 
         self.stow_arm()
 

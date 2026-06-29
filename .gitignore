@@ -1,2 +1,7 @@
 output/
 .vscode/
+data/
+models/
+datasets/
+.codex/
+.agents/

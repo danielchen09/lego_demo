@@ -10,7 +10,7 @@ import bosdyn.client
 import bosdyn.client.estop
 import bosdyn.client.lease
 import bosdyn.client.util
-from bosdyn.api import estop_pb2, geometry_pb2, image_pb2, manipulation_api_pb2
+from bosdyn.api import estop_pb2, geometry_pb2, image_pb2, manipulation_api_pb2, basic_command_pb2
 from bosdyn.client.estop import EstopClient
 from bosdyn.client.frame_helpers import GRAV_ALIGNED_BODY_FRAME_NAME, ODOM_FRAME_NAME, get_a_tform_b, VISION_FRAME_NAME, get_vision_tform_body, math_helpers, get_se2_a_tform_b, BODY_FRAME_NAME, HAND_FRAME_NAME
 from bosdyn.client.image import ImageClient
@@ -19,6 +19,7 @@ from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient,
 from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.client.world_object import WorldObjectClient
 from bosdyn.api.basic_command_pb2 import RobotCommandFeedbackStatus
+from bosdyn.geometry import EulerZXY
 
 
 class SpotController:
@@ -172,6 +173,23 @@ class SpotController:
         reach_command_id = self.command_client.robot_command(command)
         block_until_arm_arrives(self.command_client, reach_command_id, 10.0)
 
+    def move_relative_body(self, x, y, yaw, seconds=3.):
+        transforms = self.get_transforms_snapshot()
+        robot_cmd = RobotCommandBuilder.synchro_trajectory_command_in_body_frame(x, y, yaw, transforms)
+        cmd_id = self.command_client.robot_command(robot_cmd, end_time_secs=time.time() + seconds)
+        return block_for_trajectory_cmd(
+            self.command_client,
+            cmd_id,
+            trajectory_end_statuses=(
+                basic_command_pb2.SE2TrajectoryCommand.Feedback.STATUS_AT_GOAL,
+            ),
+            body_movement_statuses=(
+                basic_command_pb2.SE2TrajectoryCommand.Feedback.BODY_STATUS_SETTLED,
+            ),
+            timeout_sec=10.0,
+        )
+
+
 
     def get_transforms_snapshot(self):
         return self.robot_state_client.get_robot_state().kinematic_state.transforms_snapshot
@@ -205,15 +223,15 @@ class SpotController:
                 return True
             time.sleep(1)
 
-    def open_gripper(self, return_cmd=False):
+    def open_gripper(self, return_cmd=False, seconds=2.0):
         gripper_command = RobotCommandBuilder.claw_gripper_open_command()
         cmd_id = self.command_client.robot_command(gripper_command)
-        block_until_arm_arrives(self.command_client, cmd_id, 4.0)
+        block_until_arm_arrives(self.command_client, cmd_id, seconds)
     
-    def close_gripper(self):
+    def close_gripper(self, seconds=2.0):
         gripper_command = RobotCommandBuilder.claw_gripper_close_command()
         cmd_id = self.command_client.robot_command(gripper_command)
-        block_until_arm_arrives(self.command_client, cmd_id, 4.0)
+        block_until_arm_arrives(self.command_client, cmd_id, seconds)
 
     def arm_look_at(self, position_world, gripper_open=True, seconds=4.0, hand_pose=None):
         gaze_command = RobotCommandBuilder.arm_gaze_command(
@@ -243,6 +261,11 @@ class SpotController:
             arm_command = RobotCommandBuilder.build_synchro_command(arm_command, gripper_command)
         command_id = self.command_client.robot_command(arm_command)
         block_until_arm_arrives(self.command_client, command_id, seconds + 5.0)
+
+    def twist_body(self, yaw):
+        footprint_R_body = EulerZXY(yaw=yaw)
+        cmd = RobotCommandBuilder.synchro_stand_command(footprint_R_body=footprint_R_body)
+        blocking_stand(self.command_client, params=RobotCommandBuilder.mobility_params(footprint_R_body=footprint_R_body),)
 
     @staticmethod
     def rotate_image(image, source_name):
